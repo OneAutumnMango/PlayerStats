@@ -44,6 +44,14 @@ namespace PlayerStats
                 if (behaviour != null)
                     behaviour.IsVisible = !behaviour.IsVisible;
             }
+
+            bool useTab = behaviour != null && behaviour.UseTabToShow;
+            string tabLabel = $"Use Tab to Show: {(useTab ? "ON" : "OFF")}";
+            if (UIComponents.Button(tabLabel))
+            {
+                if (behaviour != null)
+                    behaviour.UseTabToShow = !behaviour.UseTabToShow;
+            }
         }
     }
 }

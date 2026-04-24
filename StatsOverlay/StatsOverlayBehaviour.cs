@@ -20,6 +20,7 @@ namespace PlayerStats.StatsOverlay
 
         private readonly List<PlayerStatSnapshot> _snapshots = new List<PlayerStatSnapshot>();
         public bool IsVisible = true;
+        public bool UseTabToShow = false;
 
         private bool _roundActive;
         private float _nextRefresh;
@@ -140,7 +141,8 @@ namespace PlayerStats.StatsOverlay
 
         private void OnGUI()
         {
-            if (!IsVisible || _snapshots.Count == 0)
+            bool show = IsVisible && (!UseTabToShow || Input.GetKey(KeyCode.Tab));
+            if (!show || _snapshots.Count == 0)
                 return;
 
             EnsureStyles();
@@ -149,23 +151,27 @@ namespace PlayerStats.StatsOverlay
             const float statW  = 54f;
             const float pad    = 8f;
             const float rowH   = 20f;
-            const float spellIndent = 12f;
-            const float spellNameW  = 130f;
-            const float spellDmgW   = 46f;
-            const float spellPctW   = 44f;
+            const float spellIndent  = 12f;
+            const float spellNameW  = 115f;
+            const float spellDmgW   = 44f;
+            const float spellPctW   = 38f;
+            const float spellHitsW  = 55f;  // "12/15"
+            const float spellHPctW  = 38f;  // "80%"
 
             // --- Pre-calculate total height including spell rows ---
             float totalW = pad * 2 + nameW + statW * 4;
             float totalH = pad * 2 + rowH; // header
 
-            var spellBreakdowns = new System.Collections.Generic.List<System.Collections.Generic.List<(string, int)>>();
+            var spellBreakdowns = new System.Collections.Generic.List<System.Collections.Generic.List<(string, SpellDamageTracker.SpellStats, int)>>();
             foreach (var s in _snapshots)
             {
                 totalH += rowH;
                 var breakdown = s.PlayerNumber >= 0
                     ? SpellDamageTracker.GetForPlayer(s.PlayerNumber)
-                    : new System.Collections.Generic.List<(string, int)>();
+                    : new System.Collections.Generic.List<(string, SpellDamageTracker.SpellStats, int)>();
                 spellBreakdowns.Add(breakdown);
+                if (breakdown.Count > 0)
+                    totalH += rowH; // legend row
                 totalH += breakdown.Count * rowH;
             }
 
@@ -197,12 +203,33 @@ namespace PlayerStats.StatsOverlay
 
                 // Spell breakdown sub-rows
                 int totalDmg = s.Damage > 0 ? s.Damage : 1;
-                foreach (var (spellName, dmg) in spellBreakdowns[i])
+                if (spellBreakdowns[i].Count > 0)
                 {
-                    int pct = Mathf.RoundToInt(dmg * 100f / totalDmg);
-                    GUI.Label(new Rect(cx + spellIndent,                         cy, spellNameW, rowH), spellName,          _dimStyle);
-                    GUI.Label(new Rect(cx + spellIndent + spellNameW,            cy, spellDmgW,  rowH), dmg.ToString(),     _dimStyle);
-                    GUI.Label(new Rect(cx + spellIndent + spellNameW + spellDmgW, cy, spellPctW, rowH), pct + "%",          _dimStyle);
+                    // Legend row for spell columns
+                    float lx = cx + spellIndent;
+                    GUI.Label(new Rect(lx,                                                    cy, spellNameW, rowH), "Spell",    _dimStyle);
+                    GUI.Label(new Rect(lx + spellNameW,                                       cy, spellDmgW,  rowH), "Dmg",      _dimStyle);
+                    GUI.Label(new Rect(lx + spellNameW + spellDmgW,                           cy, spellPctW,  rowH), "%",        _dimStyle);
+                    GUI.Label(new Rect(lx + spellNameW + spellDmgW + spellPctW,               cy, spellHitsW, rowH), "Hit/Cast", _dimStyle);
+                    GUI.Label(new Rect(lx + spellNameW + spellDmgW + spellPctW + spellHitsW,  cy, spellHPctW, rowH), "Rate",     _dimStyle);
+                    cy += rowH;
+                }
+                foreach (var (spellName, st, src) in spellBreakdowns[i])
+                {
+                    int pct     = Mathf.Clamp(Mathf.RoundToInt(st.TotalDamage * 100f / totalDmg), 0, 100);
+                    bool showHits = !SpellDamageTracker.IsHitTrackingExcluded(src);
+                    int hits    = st.Hits;
+                    int misses  = Mathf.Max(0, st.Attempts - hits);
+                    int hitPct  = st.Attempts > 0 ? Mathf.Min(100, Mathf.RoundToInt(hits * 100f / st.Attempts)) : -1;
+                    string hitStr  = showHits ? (st.Attempts > 0 ? $"{hits}/{hits + misses}" : "-") : "--";
+                    string hpStr   = showHits ? (hitPct >= 0 ? hitPct + "%" : "-") : "--";
+
+                    float rx = cx + spellIndent;
+                    GUI.Label(new Rect(rx,                          cy, spellNameW, rowH), spellName,               _dimStyle);
+                    GUI.Label(new Rect(rx + spellNameW,             cy, spellDmgW,  rowH), ((int)st.TotalDamage).ToString(), _dimStyle);
+                    GUI.Label(new Rect(rx + spellNameW + spellDmgW, cy, spellPctW,  rowH), pct + "%",               _dimStyle);
+                    GUI.Label(new Rect(rx + spellNameW + spellDmgW + spellPctW,           cy, spellHitsW, rowH), hitStr, _dimStyle);
+                    GUI.Label(new Rect(rx + spellNameW + spellDmgW + spellPctW + spellHitsW, cy, spellHPctW, rowH), hpStr, _dimStyle);
                     cy += rowH;
                 }
             }
