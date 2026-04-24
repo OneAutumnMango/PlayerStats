@@ -6,8 +6,6 @@ namespace PlayerStats.DamageDisplay
     [HarmonyPatch]
     public static class DamageDisplayPatches
     {
-        // Persists across rounds — updated by OnAddScore
-        private static readonly Dictionary<int, float> _knownDamage = new();
         // Player name per number so we can recompose nameText.text
         private static readonly Dictionary<int, string> _playerNames = new();
 
@@ -17,7 +15,6 @@ namespace PlayerStats.DamageDisplay
         {
             if (PlayerManager.round <= 1)
             {
-                _knownDamage.Clear();
                 _playerNames.Clear();
             }
         }
@@ -30,46 +27,23 @@ namespace PlayerStats.DamageDisplay
         [HarmonyPostfix]
         static void OnUpdateName(RecapCard __instance, string name, int owner)
         {
-            // Store the canonical name so OnAddScore can recompose later
+            // Store the canonical name so we can recompose later
             _playerNames[owner] = __instance.nameText.text;
 
-            float damage = _knownDamage.TryGetValue(owner, out float d) ? d : 0f;
+            // Read damage from the player's live scores.
+            // At UpdateName time (called during RoundRecapManager.Initialize),
+            // the current round's damage is still in roundScore — it only gets
+            // merged into totalScore later during the CondenseKills state.
+            float damage = 0f;
+            if (PlayerManager.players != null &&
+                PlayerManager.players.TryGetValue(owner, out var player))
+            {
+                damage += player.roundScore?.damageDealt ?? 0f;
+                damage += player.totalScore?.damageDealt ?? 0f;
+            }
+
             __instance.nameText.text += $"\n{(int)damage} dmg";
             Plugin.Log.LogInfo($"[DamageDisplay] UpdateName: player={owner}, damage={damage}");
-        }
-
-        /// <summary>
-        /// Fires when totalScore.AddScore(roundScore) runs — scores are real here.
-        /// </summary>
-        [HarmonyPatch(typeof(Score), nameof(Score.AddScore))]
-        [HarmonyPostfix]
-        static void OnAddScore(Score __instance, Score score)
-        {
-            Plugin.Log.LogInfo($"[DamageDisplay] OnAddScore fired: damageDealt={__instance.damageDealt}, added={score.damageDealt}");
-
-            if (PlayerManager.players == null) return;
-
-            foreach (var kvp in PlayerManager.players)
-            {
-                if (kvp.Value.totalScore != __instance) continue;
-
-                int playerNum = kvp.Key;
-                _knownDamage[playerNum] = __instance.damageDealt;
-
-                if (_playerNames.TryGetValue(playerNum, out string baseName))
-                {
-                    var recap = UnityEngine.Object.FindObjectOfType<RoundRecapManager>();
-                    if (recap == null) break;
-
-                    var playerCards = Traverse.Create(recap).Field("playerCards")
-                        .GetValue<System.Collections.Generic.Dictionary<int, RecapCard>>();
-                    if (playerCards == null || !playerCards.TryGetValue(playerNum, out var card)) break;
-
-                    card.nameText.text = baseName + $"\n{(int)__instance.damageDealt} dmg";
-                    Plugin.Log.LogInfo($"[DamageDisplay] OnAddScore: {kvp.Value.name} => {(int)__instance.damageDealt} dmg");
-                }
-                break;
-            }
         }
 
         /// <summary>
@@ -82,11 +56,18 @@ namespace PlayerStats.DamageDisplay
             var player = Traverse.Create(__instance).Field("player").GetValue<Player>();
             if (player == null) return;
 
+            // Read fresh damage from the live score
+            float damage = player.totalScore?.damageDealt ?? 0f;
+
             if (_playerNames.TryGetValue(player.playerNumber, out string baseName))
             {
-                __instance.nameText.text = baseName + $"\n{__instance.statsDamage.text} dmg";
-                Plugin.Log.LogInfo($"[DamageDisplay] ShowStats: {player.name} => {__instance.statsDamage.text} dmg");
+                __instance.nameText.text = baseName + $"\n{(int)damage} dmg";
             }
+            else
+            {
+                __instance.nameText.text += $"\n{(int)damage} dmg";
+            }
+            Plugin.Log.LogInfo($"[DamageDisplay] ShowStats: {player.name} => {(int)damage} dmg");
         }
     }
 }
