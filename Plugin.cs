@@ -22,15 +22,28 @@ namespace PlayerStats
 
             _moduleManager = ModManager.RegisterMod("PlayerStats", "com.magequit.playerstats");
             _moduleManager.RegisterModule(new DamageDisplay.DamageDisplayModule());
+            _moduleManager.RegisterModule(new StatsOverlay.StatsOverlayModule());
 
             ModUIRegistry.RegisterMod(
                 "PlayerStats",
                 "In-game player statistics overlays",
-                null,
+                BuildModUI,
                 priority: 20
             );
 
             Log.LogInfo("PlayerStats loaded!");
+        }
+
+        private void BuildModUI()
+        {
+            var behaviour = StatsOverlay.StatsOverlayBehaviour.Instance;
+            bool visible = behaviour != null && behaviour.IsVisible;
+            string label = $"Stats Overlay: {(visible ? "ON" : "OFF")}";
+            if (UIComponents.Button(label))
+            {
+                if (behaviour != null)
+                    behaviour.IsVisible = !behaviour.IsVisible;
+            }
         }
     }
 }
